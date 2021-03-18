@@ -1,0 +1,8 @@
+qtest
+*.o
+*.o.d
+*.dSYM
+.vscode
+.devcontainer
+core*
+.cmd_history
