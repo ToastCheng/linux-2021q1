@@ -65,6 +65,8 @@ typedef union {
 int xs_type(const xs *x);
 char *xs_data(const xs *x);
 size_t xs_size(const xs *x);
+size_t xs_capacity(const xs *x);
+
 xs *xs_new(xs *x, const void *p);
 xs *xs_grow(xs *x, size_t len);
 xs *xs_concat(xs *string, const xs *prefix, const xs *suffix);

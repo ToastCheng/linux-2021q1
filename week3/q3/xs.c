@@ -32,7 +32,7 @@ int xs_type(const xs *x)
     return XS_MEDIUM;
 }
 
-static inline size_t xs_capacity(const xs *x)
+size_t xs_capacity(const xs *x)
 {
     return xs_is_ptr(x) ? ((size_t) 1 << x->capacity) - 1 : 15;
 }
@@ -113,17 +113,27 @@ xs *xs_grow(xs *x, size_t len)
 
     /* Backup first */
     if (!xs_is_ptr(x))
-        memcpy(buf, x->filler, 15);
-        // memcpy(buf, x->data, 16);
+        memcpy(buf, x->data, 16);
 
-    x->is_ptr = true;
     x->capacity = ilog2(len) + 1;
+    bool is_ptr = x->is_ptr;
+    x->is_ptr = true;
 
-    if (xs_is_ptr(x)) {
-        xs_allocate_data(x, len, 1);
+    if (len < LARGE_STRING_LEN) {
+        if (is_ptr) {
+            xs_allocate_data(x, len, 1);
+        } else {
+            xs_allocate_data(x, len, 0);
+            memcpy(xs_data(x), buf, 16);
+        }
     } else {
-        xs_allocate_data(x, len, 0);
-        memcpy(xs_data(x), buf, 16);
+        x->is_large_string = true;
+        if (is_ptr) {
+            xs_allocate_data(x, len, 1);
+        } else {
+            xs_allocate_data(x, len, 0);
+            memcpy(xs_data(x) + 4, buf, 16);
+        }
     }
     return x;
 }
