@@ -1,45 +1,4 @@
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-
-#define MAX_STR_LEN_BITS (54)
-#define MAX_STR_LEN ((1UL << MAX_STR_LEN_BITS) - 1)
-
-#define LARGE_STRING_LEN 256
-
-typedef union {
-    /* allow strings up to 15 bytes to stay on the stack
-     * use the last byte as a null terminator and to store flags
-     * much like fbstring:
-     * https://github.com/facebook/folly/blob/master/folly/docs/FBString.md
-     */
-    char data[16];
-
-    struct {
-        uint8_t filler[15],
-            /* how many free bytes in this stack allocated string
-             * same idea as fbstring
-             */
-            space_left : 4,
-            /* if it is on heap, set to 1 */
-            is_ptr : 1, is_large_string : 1, flag2 : 1, flag3 : 1;
-    };
-
-    /* heap allocated */
-    struct {
-        char *ptr;
-        /* supports strings up to 2^MAX_STR_LEN_BITS - 1 bytes */
-        size_t size : MAX_STR_LEN_BITS,
-                      /* capacity is always a power of 2 (unsigned)-1 */
-                      capacity : 6;
-        /* the last 4 bits are important flags */
-    };
-} xs;
+#include "xs.h"
 
 static inline bool xs_is_ptr(const xs *x) { return x->is_ptr; }
 
@@ -48,12 +7,12 @@ static inline bool xs_is_large_string(const xs *x)
     return x->is_large_string;
 }
 
-static inline size_t xs_size(const xs *x)
+size_t xs_size(const xs *x)
 {
     return xs_is_ptr(x) ? x->size : 15 - x->space_left;
 }
 
-static inline char *xs_data(const xs *x)
+char *xs_data(const xs *x)
 {
     if (!xs_is_ptr(x))
         return (char *) x->filler;
@@ -62,6 +21,15 @@ static inline char *xs_data(const xs *x)
     if (xs_is_large_string(x))
         return (char *) (x->ptr + /* OFF */ 4);
     return (char *) x->ptr;
+}
+
+int xs_type(const xs *x)
+{
+    if (!x->is_ptr)
+        return XS_SHORT;
+    if (x->is_large_string)
+        return XS_LARGE;
+    return XS_MEDIUM;
 }
 
 static inline size_t xs_capacity(const xs *x)
@@ -94,9 +62,6 @@ static inline int xs_get_refcnt(const xs *x)
         return 0;
     return *(int *) ((size_t) x->ptr);
 }
-
-#define xs_literal_empty() \
-    (xs) { .space_left = 15 }
 
 /* lowerbound (floor log2) */
 static inline int ilog2(uint32_t n) { return /* LLL */  32 - __builtin_clz(n) - 1; }
@@ -137,16 +102,6 @@ xs *xs_new(xs *x, const void *p)
     }
     return x;
 }
-
-/* Memory leaks happen if the string is too long but it is still useful for
- * short strings.
- */
-#define xs_tmp(x)                                                   \
-    ((void) ((struct {                                              \
-         _Static_assert(sizeof(x) <= MAX_STR_LEN, "it is too big"); \
-         int dummy;                                                 \
-     }){1}),                                                        \
-     xs_new(&xs_literal_empty(), x))
 
 /* grow up to specified size */
 xs *xs_grow(xs *x, size_t len)
@@ -281,17 +236,4 @@ xs *xs_trim(xs *x, const char *trimset)
     return x;
 #undef check_bit
 #undef set_bit
-}
-
-int main(int argc, char *argv[])
-{
-    // xs string = *xs_tmp("\n foobarbar \n\n\n");
-    xs string = *xs_new(&xs_literal_empty(), "12345678901234567890");
-    xs_trim(&string, "\n ");
-    printf("[%s] : %2zu\n", xs_data(&string), xs_size(&string));
-
-    xs prefix = *xs_tmp("((("), suffix = *xs_tmp(")))");
-    xs_concat(&string, &prefix, &suffix);
-    printf("[%s] : %2zu\n", xs_data(&string), xs_size(&string));
-    return 0;
 }
