@@ -66,6 +66,28 @@ static inline int xs_get_refcnt(const xs *x)
 /* lowerbound (floor log2) */
 static inline int ilog2(uint32_t n) { return /* LLL */  32 - __builtin_clz(n) - 1; }
 
+static void xs_allocate_data_interning(xs *x, const void *p, size_t len, bool reallocate)
+{
+    /* Medium string */
+    if (len < LARGE_STRING_LEN) {
+        x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity)
+                            : malloc((size_t) 1 << x->capacity);
+        memcpy(xs_data(x), p, len);
+        return;
+    }
+
+    /* Large string */
+    x->is_large_string = 1;
+
+    /* The extra 4 bytes are used to store the reference count */
+    // x->ptr = reallocate ? realloc(x->ptr, (size_t)(1 << x->capacity) + 4)
+    //                     : malloc((size_t)(1 << x->capacity) + 4);
+
+    struct xs_node *n = add_interning(p);
+    x->ptr = n->data;
+    xs_set_refcnt(x, 1);
+}
+
 static void xs_allocate_data(xs *x, size_t len, bool reallocate)
 {
     /* Medium string */
@@ -93,11 +115,9 @@ xs *xs_new(xs *x, const void *p)
         x->capacity = ilog2(len) + 1;
         x->size = len - 1;
         x->is_ptr = true;
-        xs_allocate_data(x, x->size, 0);
-        memcpy(xs_data(x), p, len);
+        xs_allocate_data_interning(x, p, x->size, 0);
     } else {
-        memcpy(x->filler, p, len);
-        // memcpy(x->data, p, len);
+        memcpy(x->data, p, len);
         x->space_left = 15 - (len - 1);
     }
     return x;
@@ -151,10 +171,18 @@ static inline xs *xs_free(xs *x)
     return xs_newempty(x);
 }
 
+// xs_cow_lazy_copy copy data to x
 static bool xs_cow_lazy_copy(xs *x, char **data)
 {
-    if (xs_get_refcnt(x) <= 1)
+    if (xs_get_refcnt(x) <= 1) {
+        if (data) {
+            memcpy(xs_data(x), *data, x->size);
+
+            /* Update the newly allocated pointer */
+            *data = xs_data(x);
+        }
         return false;
+    }
 
     /* Lazy copy */
     xs_dec_refcnt(x);
@@ -177,7 +205,8 @@ xs *xs_concat(xs *string, const xs *prefix, const xs *suffix)
     char *pre = xs_data(prefix), *suf = xs_data(suffix),
          *data = xs_data(string);
 
-    xs_cow_lazy_copy(string, &data);
+    if (xs_get_refcnt(string) > 1)
+        xs_cow_lazy_copy(string, &data);
 
     if (size + pres + sufs <= capacity) {
         memmove(data + pres, data, size);
@@ -209,8 +238,10 @@ xs *xs_trim(xs *x, const char *trimset)
 
     char *dataptr = xs_data(x), *orig = dataptr;
 
-    if (xs_cow_lazy_copy(x, &dataptr))
+    if (xs_get_refcnt(x) > 1) {
+        xs_cow_lazy_copy(x, &dataptr);
         orig = dataptr;
+    }
 
     /* similar to strspn/strpbrk but it operates on binary data */
     uint8_t mask[32] = {0};

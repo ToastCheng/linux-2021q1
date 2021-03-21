@@ -9,6 +9,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "intern.h"
+
 #define MAX_STR_LEN_BITS (54)
 #define MAX_STR_LEN ((1UL << MAX_STR_LEN_BITS) - 1)
 
