@@ -66,53 +66,40 @@ static inline int xs_get_refcnt(const xs *x)
 /* lowerbound (floor log2) */
 static inline int ilog2(uint32_t n) { return /* LLL */  32 - __builtin_clz(n) - 1; }
 
-static void xs_allocate_data_interning(xs *x, const void *p, size_t len, bool reallocate)
+static void xs_interning(xs *x, const void *p, size_t len, bool reallocate)
 {
-    /* Medium string */
-    if (len < LARGE_STRING_LEN) {
-        x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity)
-                            : malloc((size_t) 1 << x->capacity);
-        memcpy(xs_data(x), p, len);
-        return;
-    }
-
-    /* Large string */
-    x->is_large_string = 1;
-
-    // the allocation is handled at interning
+    // the allocation and set refcnt is handled at interning
     struct xs_node *n = add_interning(p);
     x->ptr = n->data;
-    xs_set_refcnt(x, 1);
 }
 
 static void xs_allocate_data(xs *x, size_t len, bool reallocate)
 {
-    /* Medium string */
-    if (len < LARGE_STRING_LEN) {
-        x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity)
-                            : malloc((size_t) 1 << x->capacity);
-        return;
-    }
-
-    /* Large string */
-    x->is_large_string = 1;
-
-    /* The extra 4 bytes are used to store the reference count */
-    x->ptr = reallocate ? realloc(x->ptr, (size_t)(1 << x->capacity) + 4)
-                        : malloc((size_t)(1 << x->capacity) + 4);
-
-    xs_set_refcnt(x, 1);
+    x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity)
+                        : malloc((size_t) 1 << x->capacity);
 }
 
+/* 
+ * xs_new create a xs string, allocate the necessary memory and copy the 
+ * the bytes from p to xs_data(x). If strlen(p) is greater or equal to 
+ * LARGE_STRING_LEN, use string interning to share memory address if possible.
+ */
 xs *xs_new(xs *x, const void *p)
 {
     *x = xs_literal_empty();
     size_t len = strlen(p) + 1;
-    if (len > /* NNN */ MIDDLE_STRING_LEN) {
+    if (len > LARGE_STRING_LEN) {
         x->capacity = ilog2(len) + 1;
         x->size = len - 1;
         x->is_ptr = true;
-        xs_allocate_data_interning(x, p, x->size, 0);
+        x->is_large_string = true;
+        xs_interning(x, p, x->size, 0);
+    } else if (len > /* NNN */ MIDDLE_STRING_LEN) {
+        x->capacity = ilog2(len) + 1;
+        x->size = len - 1;
+        x->is_ptr = true;
+        xs_allocate_data(x, x->size, 0);
+        memcpy(xs_data(x), p, len);
     } else {
         memcpy(x->data, p, len);
         x->space_left = 15 - (len - 1);
