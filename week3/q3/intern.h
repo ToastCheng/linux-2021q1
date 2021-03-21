@@ -10,6 +10,8 @@ struct xs_node* get_interning(char *str);
 
 struct xs_node* add_interning(const char *str);
 
+void add_interning_address(char *data);
+
 void remove_interning(char *str);
 
 #endif

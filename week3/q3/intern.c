@@ -61,6 +61,31 @@ struct xs_node* get_interning(char *str)
     return NULL;
 }
 
+void add_interning_address(char *data)
+{
+    XS_LOCK();
+    int len = strlen(data);
+    uint32_t hash = hash_blob(data, len);
+
+    if (!__intern_ctx.pool) {
+        __intern_ctx.pool = malloc(sizeof(struct __xs_pool));
+    }
+
+    struct xs_node **n = &__intern_ctx.pool->node[hash];
+    while (*n) {
+        if (strcmp((*n)->data + 4, data) == 0) {
+            ++(*(int *) ((size_t) (*n)->data));
+            XS_UNLOCK();
+            return;
+        }
+        n = &((*n)->next);
+    }
+    *n = malloc(sizeof(struct xs_node));
+    (*n)->data = data;
+    XS_UNLOCK();
+    return;
+}
+
 struct xs_node *add_interning(const char *str)
 {
     XS_LOCK();

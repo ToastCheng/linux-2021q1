@@ -73,6 +73,18 @@ static void xs_interning(xs *x, const void *p, size_t len, bool reallocate)
     x->ptr = n->data;
 }
 
+/* 
+ * xs_interning_nontrack is used for copy on write, copy a string data and store it
+ * in heap, but not to reuse the existing memory address. 
+ */
+static void xs_interning_nontrack(xs *x, const void *p, size_t len, bool reallocate)
+{
+    x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity + 4)
+                        : malloc((size_t) 1 << x->capacity + 4);
+    memcpy(xs_data(x), p, len);
+    xs_set_refcnt(x, 1);
+}
+
 static void xs_allocate_data(xs *x, size_t len, bool reallocate)
 {
     x->ptr = reallocate ? realloc(x->ptr, (size_t) 1 << x->capacity)
@@ -121,10 +133,14 @@ xs *xs_grow(xs *x, size_t len)
 
     x->capacity = ilog2(len) + 1;
     bool is_ptr = x->is_ptr;
+    bool is_large_string = x->is_large_string;
     x->is_ptr = true;
 
     if (len < LARGE_STRING_LEN) {
-        if (is_ptr) {
+        x->is_large_string = false;
+        if (is_large_string) {
+            // TODO: handle string interning
+        } else if (is_ptr) {
             xs_allocate_data(x, len, 1);
         } else {
             xs_allocate_data(x, len, 0);
@@ -132,7 +148,10 @@ xs *xs_grow(xs *x, size_t len)
         }
     } else {
         x->is_large_string = true;
-        if (is_ptr) {
+        // TODO: handle string interning
+        if (is_large_string) {
+            ;
+        } else if (is_ptr) {
             xs_allocate_data(x, len, 1);
         } else {
             xs_allocate_data(x, len, 0);
@@ -156,29 +175,23 @@ static inline xs *xs_free(xs *x)
 }
 
 // xs_cow_lazy_copy copy data to x
-static bool xs_cow_lazy_copy(xs *x, char **data)
+static void xs_cow_lazy_copy(xs *x, char **data)
 {
-    if (xs_get_refcnt(x) <= 1) {
-        if (data) {
-            memcpy(xs_data(x), *data, x->size);
-
-            /* Update the newly allocated pointer */
-            *data = xs_data(x);
-        }
-        return false;
+    if (!x->is_large_string) {
+        memcpy(xs_data(x), *data, strlen(*data));
+        return;
+    } else if (xs_get_refcnt(x) > 1) {
+        /* Lazy copy */
+        xs_dec_refcnt(x);
+        xs_interning_nontrack(x, *data, x->size, 0);
     }
-
-    /* Lazy copy */
-    xs_dec_refcnt(x);
-    xs_allocate_data(x, x->size, 0);
 
     if (data) {
         memcpy(xs_data(x), *data, x->size);
-
-        /* Update the newly allocated pointer */
-        *data = xs_data(x);
     }
-    return true;
+    /* Update the newly allocated pointer */
+    *data = xs_data(x);
+    return;
 }
 
 xs *xs_concat(xs *string, const xs *prefix, const xs *suffix)
@@ -212,6 +225,8 @@ xs *xs_concat(xs *string, const xs *prefix, const xs *suffix)
         *string = tmps;
         string->size = size + pres + sufs;
     }
+    if (string->is_large_string)
+        add_interning_address(string->ptr);
     return string;
 }
 
@@ -258,6 +273,8 @@ xs *xs_trim(xs *x, const char *trimset)
         x->size = slen;
     else
         x->space_left = 15 - slen;
+    if (x->is_large_string)
+        add_interning_address(x->ptr);
     return x;
 #undef check_bit
 #undef set_bit
