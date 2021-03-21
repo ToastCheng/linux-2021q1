@@ -79,10 +79,7 @@ static void xs_allocate_data_interning(xs *x, const void *p, size_t len, bool re
     /* Large string */
     x->is_large_string = 1;
 
-    /* The extra 4 bytes are used to store the reference count */
-    // x->ptr = reallocate ? realloc(x->ptr, (size_t)(1 << x->capacity) + 4)
-    //                     : malloc((size_t)(1 << x->capacity) + 4);
-
+    // the allocation is handled at interning
     struct xs_node *n = add_interning(p);
     x->ptr = n->data;
     xs_set_refcnt(x, 1);
@@ -111,7 +108,7 @@ xs *xs_new(xs *x, const void *p)
 {
     *x = xs_literal_empty();
     size_t len = strlen(p) + 1;
-    if (len > /* NNN */ 16) {
+    if (len > /* NNN */ MIDDLE_STRING_LEN) {
         x->capacity = ilog2(len) + 1;
         x->size = len - 1;
         x->is_ptr = true;
@@ -126,14 +123,14 @@ xs *xs_new(xs *x, const void *p)
 /* grow up to specified size */
 xs *xs_grow(xs *x, size_t len)
 {
-    char buf[16];
+    char buf[MIDDLE_STRING_LEN];
 
     if (len <= xs_capacity(x))
         return x;
 
     /* Backup first */
     if (!xs_is_ptr(x))
-        memcpy(buf, x->data, 16);
+        memcpy(buf, x->data, MIDDLE_STRING_LEN);
 
     x->capacity = ilog2(len) + 1;
     bool is_ptr = x->is_ptr;
@@ -144,7 +141,7 @@ xs *xs_grow(xs *x, size_t len)
             xs_allocate_data(x, len, 1);
         } else {
             xs_allocate_data(x, len, 0);
-            memcpy(xs_data(x), buf, 16);
+            memcpy(xs_data(x), buf, MIDDLE_STRING_LEN);
         }
     } else {
         x->is_large_string = true;
@@ -152,7 +149,7 @@ xs *xs_grow(xs *x, size_t len)
             xs_allocate_data(x, len, 1);
         } else {
             xs_allocate_data(x, len, 0);
-            memcpy(xs_data(x) + 4, buf, 16);
+            memcpy(xs_data(x) + 4, buf, MIDDLE_STRING_LEN);
         }
     }
     return x;

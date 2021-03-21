@@ -15,6 +15,7 @@
 #define MAX_STR_LEN ((1UL << MAX_STR_LEN_BITS) - 1)
 
 #define LARGE_STRING_LEN 256
+#define MIDDLE_STRING_LEN 16
 
 /* Memory leaks happen if the string is too long but it is still useful for
  * short strings.
@@ -41,7 +42,7 @@ typedef union {
      * much like fbstring:
      * https://github.com/facebook/folly/blob/master/folly/docs/FBString.md
      */
-    char data[16];
+    char data[MIDDLE_STRING_LEN];
 
     struct {
         uint8_t filler[15],
