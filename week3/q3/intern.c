@@ -66,34 +66,25 @@ struct xs_node *add_interning(const char *str)
     XS_LOCK();
     int len = strlen(str);
     uint32_t hash = hash_blob(str, len);
+
     if (!__intern_ctx.pool) {
         __intern_ctx.pool = malloc(sizeof(struct __xs_pool));
     }
-    struct xs_node *n = __intern_ctx.pool->node[hash];
-    struct xs_node *prev = n;
-    while (n) {
-        if (strcmp(n->data + 4, str) == 0) {
-            ++(*(int *) ((size_t) n->data));
+
+    struct xs_node **n = &__intern_ctx.pool->node[hash];
+    while (*n) {
+        if (strcmp((*n)->data + 4, str) == 0) {
+            ++(*(int *) ((size_t) (*n)->data));
             XS_UNLOCK();
-            return n;
+            return *n;
         }
-        prev = n;
-        n = n->next;
+        n = &((*n)->next);
     }
-    if (!prev) {
-        prev = malloc(sizeof(struct xs_node));
-        prev->data = malloc(sizeof(char) * len + 4);
-        memcpy((prev->data + 4), str, len);
-        __intern_ctx.pool->node[hash] = prev;
-        XS_UNLOCK();
-        return prev;
-    }
-    struct xs_node *tmp = malloc(sizeof(struct xs_node));
-    tmp->data = malloc(sizeof(char) * len + 4);
-    memcpy((tmp->data + 4), str, len);
-    prev->next = tmp;
+    *n = malloc(sizeof(struct xs_node));
+    (*n)->data = malloc(sizeof(char) * len + 4);
+    memcpy(((*n)->data + 4), str, len);
     XS_UNLOCK();
-    return tmp;
+    return (*n);
 }
 
 void remove_interning(char *str)
